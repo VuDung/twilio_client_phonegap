@@ -1,26 +1,8 @@
 package com.phonegap.plugins.twilioclient;
 
-import android.Manifest;
-import android.app.Activity;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.pm.PackageManager;
-import android.media.AudioManager;
-import android.support.v4.app.NotificationCompat;
-import android.support.v4.content.LocalBroadcastManager;
-import android.util.Log;
-
-import com.twilio.client.Connection;
-import com.twilio.client.ConnectionListener;
-import com.twilio.client.Device;
-import com.twilio.client.DeviceListener;
-import com.twilio.client.PresenceEvent;
-import com.twilio.client.Twilio;
-import com.twilio.client.Twilio.InitListener;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -30,9 +12,28 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
+import android.app.Activity;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageManager;
+import android.media.AudioManager;
+import android.os.Handler;
+import android.support.v4.app.NotificationCompat;
+import android.support.v4.content.LocalBroadcastManager;
+import android.util.Log;
+
+
+import com.twilio.client.Connection;
+import com.twilio.client.ConnectionListener;
+import com.twilio.client.Device;
+import com.twilio.client.DeviceListener;
+import com.twilio.client.PresenceEvent;
+import com.twilio.client.Twilio;
+import com.twilio.client.Twilio.InitListener;
 
 //import android.R;
 
@@ -51,6 +52,10 @@ public class TCPlugin extends CordovaPlugin implements DeviceListener,
 
 	private final static String TAG = "TCPlugin";
 
+	private int numRepeat = 0;
+    private Handler mHandler = new Handler();
+    private Runnable mRunableStatus;
+	
 	private Device mDevice;
 	private Connection mConnection;
 	private CallbackContext mInitCallbackContext;
@@ -108,16 +113,11 @@ public class TCPlugin extends CordovaPlugin implements DeviceListener,
 			} else {
 				mInitCallbackContext = callbackContext;
 				mInitDeviceSetupArgs = args;
-				if(cordova.hasPermission(RECORD_AUDIO))
-				{
+				if(cordova.hasPermission(RECORD_AUDIO)){
 					initTwilio(callbackContext);
-				}
-				else
-				{
+				}else{
 					cordova.requestPermission(this, RECORD_AUDIO_REQ_CODE, RECORD_AUDIO);
 				}
-
-
 			}
 			return true;
 
@@ -205,35 +205,64 @@ public class TCPlugin extends CordovaPlugin implements DeviceListener,
 		lbm.registerReceiver(mBroadcastReceiver, new IntentFilter(IncomingConnectionActivity.ACTION_NAME));
 		
 		// delay one second to give Twilio device a change to change status (similar to iOS plugin)
+        mRunableStatus = createRunnable(callbackContext);
+        mHandler.postDelayed(mRunableStatus, 500);
+        /*
+        //Block this code from original code
+		//It make repeat code check status device after 0.5 second
 		cordova.getThreadPool().execute(new Runnable(){
 				public void run() {
 					try {
-						Thread.sleep(1000);
+						Thread.sleep(3000);
 						deviceStatusEvent(callbackContext);
 					} catch (InterruptedException ex) {
 						Log.e(TAG,"InterruptedException: " + ex.getMessage(),ex);
 					}
 				}
 			});
+			*/
 	}
+	
+	private Runnable createRunnable(final CallbackContext callbackContext) {
+        return new Runnable() {
+            @Override
+            public void run() {
+                Log.d(TAG, "Num repeat: " + numRepeat);
+                deviceStatusEvent(callbackContext);
+            }
+        };
+    }
             
 	private void deviceStatusEvent(CallbackContext callbackContext) {
-		if (mDevice == null) {
-			callbackContext.sendPluginResult(new PluginResult(
-					PluginResult.Status.ERROR));
-			return;
-		}
-		switch (mDevice.getState()) {
-		case OFFLINE:
-			javascriptCallback("onoffline", callbackContext);
-			break;
-		case READY:
-			javascriptCallback("onready", callbackContext);
-			break;
-		default:
-			break;
-		}
-	}
+        if (mDevice == null) {
+            callbackContext.sendPluginResult(new PluginResult(PluginResult.Status.ERROR));
+            return;
+        }
+        Log.e(TAG, "Device state: " + mDevice.getState().toString());
+        switch (mDevice.getState()) {
+            case OFFLINE:
+                javascriptCallback("onoffline", callbackContext);
+                if (numRepeat > 20) {
+                    mHandler.removeCallbacks(mRunableStatus);
+                    mRunableStatus = null;
+                    numRepeat = 0;
+                } else {
+                    numRepeat++;
+                    mHandler.postDelayed(mRunableStatus, 500);
+                }
+                break;
+            case READY:
+                javascriptCallback("onready", callbackContext);
+                if (mRunableStatus != null) {
+                    mHandler.removeCallbacks(mRunableStatus);
+                    mRunableStatus = null;
+                    numRepeat = 0;
+                }
+                break;
+            default:
+                break;
+        }
+    }
 
 	private void connect(JSONArray arguments, CallbackContext callbackContext) {
 		JSONObject options = arguments.optJSONObject(0);
