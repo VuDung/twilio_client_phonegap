@@ -103,6 +103,7 @@ public class TCPlugin extends CordovaPlugin implements DeviceListener,
 			final CallbackContext callbackContext) throws JSONException {
 		if ("deviceSetup".equals(action)) {
 			if (Twilio.isInitialized()) {
+				mInitCallbackContext = callbackContext;
 				deviceSetup(args, callbackContext);
 			} else {
 				mInitCallbackContext = callbackContext;
